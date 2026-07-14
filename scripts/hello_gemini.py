@@ -21,7 +21,7 @@ client = OpenAI(
     base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
 )
 
-prompt = "In one sentence: what is the difference between a unit test and an integration test?"
+prompt = "how many r's are in the word 'strawberry'?"
 
 start = time.perf_counter()
 resp = client.chat.completions.create(

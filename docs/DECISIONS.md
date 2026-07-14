@@ -93,3 +93,80 @@ able to say WHY, months later. Format: date — decision — why — alternative
 - Why it matters: every call throughout the 16 weeks produces a comparable
   cost number in the same log format. When someone asks "what does this
   feature cost per user per day?" — that answer exists in the logs, not a bill.
+
+  ## 2026-07-14 — Day 2: what tokens actually are
+- Tokens are the "atoms" LLMs operate on — smallest unit, not letters and not words.
+- BPE (byte-pair encoding) merges frequent UTF-8 byte-pairs into single tokens, so
+  common patterns get compressed into big tokens over training.
+- Why not characters? Attention is O(n²) in sequence length — character-level
+  would explode compute and shrink context windows. Why not words? Can't handle
+  new/misspelled/compound words. BPE is the middle ground.
+- Strawberry can't be counted because it's ~2 tokens; the model can't "see" the
+  individual r's inside those opaque chunks — it can only predict from patterns.
+- Spacing letters ("s t r a w b e r r y") forces one-token-per-letter, so
+  attention can now count them across positions. Same reason chain-of-thought
+  prompting works: more visible tokens = more attention workspace.
+
+## 2026-07-14 — Multilingual tokenization cost
+- Higher chars/token = more efficient. In my experiment: English ~4.3,
+  Hindi ~3.4, Telugu ~1.9 → Telugu is the most expensive per unit of text.
+- Cause: BPE prioritizes byte-pairs that appeared frequently in training.
+  English dominated training, so English got large merged tokens. Indian
+  scripts stayed as tiny 1–2 byte tokens because their pairs were too rare.
+- Business implication (matters to me personally as an Indian FDE): serving
+  Hindi/Telugu users can cost 2–4x more per interaction than English. In
+  consumer apps the user doesn't see this, but the company pays it. In an
+  FDE engagement with an Indian customer, this is a real line item that
+  affects model choice and unit economics.
+
+## 2026-07-14 — Emoji "chars/token < 1" revealed a measurement bug
+- Observed: some emoji strings had chars/token ratio below 1. Initially
+  thought this meant character-level tokenization is more efficient.
+- Actually: Python's len() counts code points, not visual characters or bytes.
+  Compound emoji (family, skin tone) are multi-code-point sequences joined
+  by invisible ZWJ characters. And each simple emoji is already 3–4 UTF-8
+  bytes. So one emoji becomes multiple tokens while len() counts it as 1.
+- Correct efficiency measure is bytes/token, not chars/token, because BPE
+  operates on UTF-8 bytes.
+- Character-level tokenization is NOT better anywhere. Reasons: (1) O(n²)
+  attention explodes when sequences get ~4x longer; (2) context windows
+  shrink proportionally (128k tokens → ~25k characters, useless for real docs).
+
+## 2026-07-14 — Prompt caching depends on exact-token prefix matches
+- Providers cache the compute for token prefixes. If a new request's prefix
+  is byte-identical to a recent one, they skip recomputing and charge ~10%
+  of normal price — a ~90% discount on the cached portion.
+- "hello" vs " hello" vs "Hello" are three different tokens. One extra space
+  in a system prompt = totally different cache key = full price.
+- Design rule for building prompts: static content (system prompt, tool defs,
+  KB context) goes at the top; variable user input goes at the bottom.
+  If variables come first, every request has a different prefix and caching
+  never fires. That's a real production cost bug hiding in prompt structure.
+
+## 2026-07-14 — Gemini 503 incident during Day 2
+- Symptom: 3 consecutive 503 UNAVAILABLE errors on gemini-3.5-flash. OpenAI
+  SDK auto-retried with exponential backoff (0.43s, 0.77s, ~1.5s) before
+  giving up. Message from Gemini: "high demand, try again later."
+- Cause: free-tier capacity contention, not my code. This is roadmap
+  failure mode #5 (rate-limit blowups) in the wild.
+- Retries alone don't solve capacity problems — they only help with truly
+  fleeting failures. If the provider is genuinely under load, retrying just
+  delays the crash and burns latency budget.
+- Two separate things to add in Week 2 client.py:
+  * Technical: model/provider fallback — on primary failure after retries,
+    try a fallback model (gemini-2.5-flash) before surfacing the error.
+  * Product: if all fallbacks fail, return a clean user-facing message,
+    not a stack trace. Degrade gracefully.
+
+## 2026-07-14 — Ruff E501 (line too long) on a comment
+- Ruff flagged a 121-char comment against my project's 100-char limit.
+- Three options I had: (1) wrap the comment across multiple lines,
+  (2) `# noqa: E501` to suppress just that line, (3) raise line-length
+  in pyproject.toml project-wide.
+- Chose (1). Reason: it's the local fix with no debt and no project-wide
+  policy shift for a single comment. `noqa` is debt (every one normalizes
+  ignoring warnings); raising the project limit is a big decision made
+  reactively for a small problem.
+- Rule going forward: fix warnings by default; suppress only when there's
+  a real reason (unbreakable URL, long string literal); change project
+  rules deliberately, once, not reactively.
