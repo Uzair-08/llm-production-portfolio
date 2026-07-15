@@ -170,3 +170,79 @@ able to say WHY, months later. Format: date — decision — why — alternative
 - Rule going forward: fix warnings by default; suppress only when there's
   a real reason (unbreakable URL, long string literal); change project
   rules deliberately, once, not reactively.
+
+  ## 2026-07-15 — Day 3: how a transformer actually generates text
+
+### 1. One token at a time — the mechanism
+Generation is a loop of forward passes. Each pass produces logits over the whole
+vocabulary; softmax turns them into probabilities; we sample one token, append it
+to the input, and repeat. The model has no plan — no held-in-mind paragraph
+structure — just "given these tokens, what's the next one most likely to be."
+
+Production implications:
+- Streaming responses are natural — tokens can be sent to the user as they're
+  generated, since each is produced independently.
+- Output tokens cost 3-5x more than input tokens because each requires its
+  own forward pass; input tokens are processed once, in parallel.
+- The model can never revise an earlier token. Once emitted, it's context.
+
+### 2. Temperature reshapes the probability distribution
+Before applying softmax, logits are divided by T: `softmax(logits / T)`.
+- T < 1 → sharper distribution (top token dominates more).
+- T = 1 → raw distribution.
+- T > 1 → flatter distribution (lower-probability tokens get more chance).
+
+Confirmed in my experiment: at T=0.1 the top token was >50% probability;
+at T=2.0 the top 4 tokens were all around 10-20% — the model becomes
+essentially random.
+
+### 3. Why T=0 is NOT perfectly deterministic in production
+This one I got wrong on first try and had to learn. In theory T=0 = greedy =
+always pick argmax = deterministic. In practice, the same prompt at T=0 can
+produce different outputs across runs.
+
+Cause: floating-point non-determinism in batched GPU inference. Providers batch
+multiple users' requests together to maximize GPU throughput. Batch composition
+changes the order of matrix multiplications at the hardware level.
+Floating-point math isn't perfectly associative — (a+b)+c can differ from
+a+(b+c) in the last few bits. Occasionally those tiny differences flip which
+token has the highest logit.
+
+Production implication: LLM evals cannot use exact string matching, even at
+T=0. Use semantic checks (contains X? LLM-judge score above threshold?)
+instead of `assert output == "expected"`.
+
+### 4. Top-k and top-p filter the tail; different job than temperature
+Temperature and top-p solve different problems:
+- Temperature reshapes the whole distribution (sharper vs. flatter).
+- Top-k/top-p CUT OFF the long tail of low-probability tokens before sampling.
+
+Even at moderate temperature, the distribution has thousands of tokens with
+tiny probabilities. Sampling from the full distribution occasionally rolls
+weird tokens and produces garbage. Top-p (keep enough top tokens to cover
+90% of probability mass) prunes the tail so sampling stays in the plausible
+zone.
+
+Analogy: temperature = how hard you shake the dice. Top-p = removing the
+loaded faces before you roll.
+
+Production defaults I'll use in Week 2:
+- Extraction / classification / factual: T=0.
+- General chat / summarization: T=0.7, top_p=0.9.
+- Creative writing: T=1.0, top_p=0.95.
+
+### 5. Watched hallucination happen mechanically
+Ran greedy decoding on "The three laws of robotics are" — model output:
+"The robot must be able to do the job." Fluent English, grammatically correct,
+factually wrong. Asimov's actual three laws don't appear. Not a bug — the
+model chose the highest-probability continuation at each step, and that
+completion IS statistically plausible in English text. Fluency ≠ accuracy.
+This is the mechanism behind hallucination and why RAG (grounding on
+retrieved documents) matters.
+
+### 6. Smaller models miss facts larger models get
+Ran the same prompts on gpt2 (124M) vs gpt2-medium (355M). "2+2=" gave
+"3" on gpt2 and "4" on gpt2-medium. Same architecture, more parameters
+and training → real capability difference. This is the "capabilities emerge
+with scale" phenomenon at small scale, live in my terminal — the same
+reason frontier models keep improving as they scale up.
