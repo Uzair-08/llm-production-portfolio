@@ -246,3 +246,83 @@ Ran the same prompts on gpt2 (124M) vs gpt2-medium (355M). "2+2=" gave
 and training → real capability difference. This is the "capabilities emerge
 with scale" phenomenon at small scale, live in my terminal — the same
 reason frontier models keep improving as they scale up.
+
+## 2026-07-XX — Day 4: embeddings and semantic search
+
+### 1. What an embedding is
+An embedding is a vector representation of text — not necessarily a single
+word, could be a phrase, sentence, or chunk (1+ tokens). It's produced by
+passing the text through multiple transformer layers, which combine and
+refine the token representations into one vector that captures the overall
+meaning of the passage.
+
+### 2. Embeddings capture structure/topic more than sentiment
+"I love pizza" and "I hate broccoli" scored 0.42 — higher than "I love pizza"
+vs "I love programming" (0.45, barely higher). Both pizza/broccoli sentences
+share the same shape: person + emotional verb + food noun. The model picked
+up on that shared structure even though "love" and "hate" are opposite
+sentiments. Lesson: embeddings capture topic/structure more strongly than
+polarity — semantic similarity is not the same as semantic agreement.
+
+### 3. Semantic search finds paraphrases without needing shared vocabulary
+Query "how do I get a refund" ranked the correct doc first even though the
+word "refund" wasn't in it — the model matched on meaning ("return policy"
+≈ "refund"). Production win: users never phrase questions exactly like the
+documentation. If retrieval required literal keyword overlap, every possible
+user phrasing would need to be anticipated. Semantic search lets docs and
+queries be written naturally and still connect.
+
+### 4. Where semantic search fails — exact matches / negation — and the fix
+Query "error code E-4012": a short, unrelated joke doc containing the literal
+phrase "error code" nearly outranked the genuinely useful troubleshooting doc,
+because the joke doc's vector was dominated by those matching words.
+Fix: hybrid search — combine embedding similarity (semantic) with BM25/keyword
+scoring (lexical), then merge the rankings. This covers both paraphrase
+matching and exact-identifier matching.
+
+Related finding: cosine similarity is more reliable on longer, information-rich
+text. Short chunks get dominated by whichever words are present (surface
+overlap), while longer chunks let real meaning average out more accurately.
+Confirmed by padding the banana joke with more text — its score against the
+query DROPPED once it stopped being just about "error code" and became a
+grab-bag about bananas generally.
+
+### 5. When to use embeddings vs. not
+Use embeddings: semantic search over natural-language documents, e.g. finding
+KB articles for phrased-differently user questions (Experiment 2).
+Don't rely on embeddings alone: exact-identifier lookups (order numbers,
+error codes, SKUs), negation-sensitive queries, or sentiment-polarity
+distinctions — all shown to fail or blur in today's experiments.
+
+### 6. The same-model gotcha
+Corpus and query embeddings MUST come from the same model. Different models
+produce vectors in incompatible spaces — not just different dimension counts,
+but genuinely different representations of the same sentence (proven directly:
+MiniLM and mpnet gave very different similarity scores for identical sentence
+pairs today). If the embedding model is ever upgraded, the entire corpus must
+be re-embedded before queries will work correctly — a real migration cost to
+plan for, not a drop-in swap.
+
+### Bonus finding — model size affects topic resolution
+Same 5 sentences ("I love burgers/pizza/biryani/school/embeddings"), two models:
+- MiniLM (384-dim): burgers↔biryani = 0.19, burgers↔school = 0.23 — WRONG,
+  ranked an unrelated topic (school) closer than a same-topic pair (food).
+- mpnet (768-dim): burgers↔biryani = 0.30, burgers↔school = 0.17 — CORRECT,
+  topic now dominates over surface sentence structure.
+Cause: more dimensions give the model more room to keep different signals
+(topic vs. sentence style) from overlapping/interfering. Bigger, better-trained
+models resolve fine distinctions that small models blur — but dimension count
+alone isn't the cause, it's a proxy for model capacity and training quality.
+Production tradeoff: bigger embedding models cost ~2x compute/storage at
+scale. Worth it when retrieval quality on closely-related short text matters;
+often unnecessary for long, information-rich documents (Experiment 2 worked
+fine on MiniLM).
+
+### Also: bare identifiers embed poorly; context helps
+Tested query "E-4012" alone vs. "error code E-4012" vs. "problem with router
+E-4012 restart" against the same doc set. The bare identifier scored WORST
+(0.394) for the correct doc — worse than the version with full sentence
+context (0.709). Short, low-context queries produce noisy vectors; embeddings
+need semantic context to work well. This is additional evidence for why
+bare identifiers should route through keyword/BM25 search rather than
+semantic
