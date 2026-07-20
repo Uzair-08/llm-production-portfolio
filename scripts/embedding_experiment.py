@@ -70,7 +70,8 @@ docs = [
     "Our support team can be reached at support@example.com.",
     "The system logs all error codes for debugging purposes.",
     "Contact your ISP if the problem persists.",
-    "banana is a fruit, not an error code. banana is a yellow fruit. and it is sold in dozens like 6 bananas or 12 bananas and minions like bananas",
+    "banana is a fruit, not an error code. banana is a yellow fruit. and it is sold in dozens "
+    "like 6 bananas or 12 bananas and minions like bananas",
     "i love mangoes",
 ]
 q_vec = embed([query])[0]
