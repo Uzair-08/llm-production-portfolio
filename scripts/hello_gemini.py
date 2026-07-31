@@ -3,6 +3,7 @@
 Not a unit test (needs network + real API). Run it manually with:
     python scripts/hello_gemini.py
 """
+
 import logging
 import time
 
@@ -39,9 +40,11 @@ print("\n--- Gemini says ---")
 print(resp.choices[0].message.content)
 print("-------------------")
 log_event(
-    log, "llm_call",
+    log,
+    "llm_call",
     model="gemini-3.5-flash",
-    in_tok=in_tok, out_tok=out_tok,
+    in_tok=in_tok,
+    out_tok=out_tok,
     cost_usd=round(cost, 6),
     latency_ms=round(latency_ms),
 )

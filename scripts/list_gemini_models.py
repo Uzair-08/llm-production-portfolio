@@ -5,6 +5,7 @@ Rule: when a provider gives you a discovery endpoint, trust it over any docs
 or tutorial (including this one). Model availability varies by account age,
 region, and rollout state.
 """
+
 import httpx
 
 from llmkit import get_settings

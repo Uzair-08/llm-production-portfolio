@@ -3,13 +3,15 @@
 The foundation of RAG, semantic search, clustering, and deduplication.
 No LLM in this script — just embeddings + math.
 """
+
 import numpy as np
 from sentence_transformers import SentenceTransformer
 
 # 384-dim, ~25MB, CPU-fast. Runs on your laptop.
 print("Loading all-MiniLM-L6-v2 (first run downloads ~25MB)...")
-#model = SentenceTransformer("all-MiniLM-L6-v2")
+# model = SentenceTransformer("all-MiniLM-L6-v2")
 model = SentenceTransformer("all-mpnet-base-v2")  # 768-dim, stronger model
+
 
 def embed(texts: list[str]) -> np.ndarray:
     """Return an (N, 384) array of embeddings. Normalized to unit length so
@@ -70,8 +72,7 @@ docs = [
     "Our support team can be reached at support@example.com.",
     "The system logs all error codes for debugging purposes.",
     "Contact your ISP if the problem persists.",
-    "banana is a fruit, not an error code. banana is a yellow fruit. and it is sold in dozens "
-    "like 6 bananas or 12 bananas and minions like bananas",
+    "banana is a fruit, not an error code. banana is a yellow fruit. and it is sold in dozens like 6 bananas or 12 bananas and minions like bananas",
     "i love mangoes",
 ]
 q_vec = embed([query])[0]
@@ -106,7 +107,7 @@ print("\n=== Experiment 4: your own ===")
 
 
 texts = [
-    "I love burgers", 
+    "I love burgers",
     "I really enjoy eating pizza",
     "I ate biryani for lunch",
     "I have to go to school",
@@ -114,11 +115,8 @@ texts = [
 ]
 for i in texts:
     for j in texts:
-        print(cosine_sim(embed([i])[0], embed([j])[0]),end="   ")
+        print(cosine_sim(embed([i])[0], embed([j])[0]), end="   ")
     print()
-
-
-
 
 
 # Summary

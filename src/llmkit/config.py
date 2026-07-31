@@ -19,7 +19,6 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     gemini_api_key: str = ""
     groq_api_key: str = ""
-    
 
     # Defaults you will tune per project
     default_model: str = "gemini-3.5-flash"  # cheap tier for iteration

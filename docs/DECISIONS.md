@@ -416,3 +416,14 @@ Lesson: caught myself before writing a false conclusion into the log.
 Measure before concluding, especially across systems that don't share
 infrastructure (different tokenizers, different hardware, different pricing
 models).
+
+## [date] — Learned E741 and E402 from a script structure issue
+- E741: renamed ambiguous variable `l` -> `lbl`. Single-letter names that
+  look like digits/other letters (l, O, I) are a real readability hazard.
+- E402: imports must ALL live at the top of the file, even in scripts
+  organized by "section." Scattering imports near the code that uses them
+  seems readable locally but breaks the convention that lets a reader see
+  every dependency at a glance, and delays import-failure errors until
+  mid-execution instead of immediately at startup.
+- Fixed by consolidating all imports into one block at the top, grouped
+  stdlib -> third-party -> local.

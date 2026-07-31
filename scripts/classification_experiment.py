@@ -9,7 +9,16 @@ Compares three approaches on the same small task:
 
 Measures: accuracy, latency, and (for the LLM) cost.
 """
+
+import logging
 import time
+
+from openai import OpenAI
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from transformers import pipeline
+
+from llmkit import estimate_cost, get_settings, setup_logging
 
 # ---------------------------------------------------------------------------
 # Test data: pretend support tickets + their true category
@@ -29,14 +38,14 @@ tickets = [
 labels = ["billing", "technical", "account", "other"]
 
 texts = [t for t, _ in tickets]
-true_labels = [l for _, l in tickets]
+true_labels = [lbl for _, lbl in tickets]
 
 
 # ---------------------------------------------------------------------------
 # Approach 1: Local zero-shot model (BART-MNLI) — no training data needed
 # ---------------------------------------------------------------------------
 print("=== Approach 1: Local zero-shot (BART-MNLI) ===")
-from transformers import pipeline
+# from transformers import pipeline
 
 classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
 
@@ -61,8 +70,8 @@ for text, pred, true in zip(texts, zs_predictions, true_labels, strict=True):
 # Trained on a SEPARATE small labeled set, tested on the same `texts` above.
 # ---------------------------------------------------------------------------
 print("\n=== Approach 2: Classical (TF-IDF + Logistic Regression) ===")
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
+# from sklearn.feature_extraction.text import TfidfVectorizer
+# from sklearn.linear_model import LogisticRegression
 
 # A tiny "training set" — different examples than the test set above
 train_texts = [
@@ -80,10 +89,18 @@ train_texts = [
     "Tell me about your company",
 ]
 train_labels = [
-    "billing", "billing", "billing",
-    "technical", "technical", "technical",
-    "account", "account", "account",
-    "other", "other", "other",
+    "billing",
+    "billing",
+    "billing",
+    "technical",
+    "technical",
+    "technical",
+    "account",
+    "account",
+    "account",
+    "other",
+    "other",
+    "other",
 ]
 
 vectorizer = TfidfVectorizer()
@@ -108,11 +125,11 @@ for text, pred, true in zip(texts, clf_predictions, true_labels, strict=True):
 # Approach 3: LLM zero-shot prompting (Gemini via your llmkit)
 # ---------------------------------------------------------------------------
 print("\n=== Approach 3: LLM zero-shot (Gemini) ===")
-import logging
+# import logging
 
-from openai import OpenAI
+# from openai import OpenAI
 
-from llmkit import estimate_cost, get_settings, setup_logging
+# from llmkit import estimate_cost, get_settings, setup_logging
 
 setup_logging()
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -148,13 +165,9 @@ groq_client = OpenAI(
     base_url="https://api.groq.com/openai/v1",
 )
 
+
 def classify_with_llm(text: str) -> tuple[str, int, int]:
-    prompt = (
-        f"Classify this support ticket into exactly one category: "
-        f"billing, technical, account, or other.\n\n"
-        f"Ticket: {text}\n\n"
-        f"Respond with ONLY the category name, nothing else."
-    )
+    prompt = f"Classify this support ticket into exactly one category: billing, technical, account, or other.\n\nTicket: {text}\n\nRespond with ONLY the category name, nothing else."
 
     # Try primary (Gemini) first, fall back to Groq on failure.
     try:
@@ -178,9 +191,9 @@ def classify_with_llm(text: str) -> tuple[str, int, int]:
     label = resp.choices[0].message.content.strip().lower()
     in_tok = resp.usage.prompt_tokens
     out_tok = resp.usage.completion_tokens
-    print(f"    [debug] model={model_used} in_tok={resp.usage.prompt_tokens} "
-      f"out_tok={resp.usage.completion_tokens}")
+    print(f"    [debug] model={model_used} in_tok={resp.usage.prompt_tokens} out_tok={resp.usage.completion_tokens}")
     return label, in_tok, out_tok, model_used  # note: now returns 4 values
+
 
 llm_predictions = []
 total_cost = 0.0
@@ -207,7 +220,7 @@ print("\n=== Summary ===")
 print(f"{'Approach':30s} {'Accuracy':>10s} {'Latency/item':>14s} {'Cost/1k items':>15s}")
 print(f"{'Local zero-shot (BART)':30s} {zs_correct}/{len(texts):>7d} {zs_latency:>12.0f}ms {'$0 (local)':>15s}")
 print(f"{'Classical (TF-IDF+LogReg)':30s} {clf_correct}/{len(texts):>7d} {clf_latency:>12.2f}ms {'$0 (local)':>15s}")
-print(f"{'LLM zero-shot (Gemini)':30s} {llm_correct}/{len(texts):>7d} {llm_latency:>12.0f}ms {f'${total_cost*100:.4f}':>15s}")
+print(f"{'LLM zero-shot (Gemini)':30s} {llm_correct}/{len(texts):>7d} {llm_latency:>12.0f}ms {f'${total_cost * 100:.4f}':>15s}")
 
 # # TODO: 4-5 lines — which approach would YOU pick for a real ticket-triage
 # # system processing 50,000 tickets/month? Justify with the numbers above.
