@@ -29,6 +29,7 @@ PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5-20251001": (1.00, 5.00),
     "claude-sonnet-4-6": (3.00, 15.00),
     "gemini-3.5-flash": (0.30, 2.50),
+    "llama-3.3-70b-versatile": (0.59, 0.79),  # Groq pricing per 1M tokens
     
 
     # add models as you use them

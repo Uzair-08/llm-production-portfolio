@@ -326,3 +326,93 @@ context (0.709). Short, low-context queries produce noisy vectors; embeddings
 need semantic context to work well. This is additional evidence for why
 bare identifiers should route through keyword/BM25 search rather than
 semantic
+
+
+## 2026-07-31 — Day 5: LLM vs. local zero-shot vs. classical ML for classification
+
+### Three-way comparison on a 10-item support-ticket classification task
+| Approach                     | Accuracy | Latency/item | Cost/10 items |
+|-------------------------------|----------|---------------|----------------|
+| Local zero-shot (BART-MNLI)   | 10/10    | 925 ms        | $0 (local)     |
+| Classical (TF-IDF + LogReg)   | 10/10    | 0.08 ms       | $0 (local)     |
+| LLM zero-shot (Gemini)        | 9/10     | 16,272 ms     | $0.000159      |
+
+Winner for this task: TF-IDF + Logistic Regression — matched accuracy of the
+zero-shot approaches, ~10,000x faster than BART, effectively free.
+
+Caveat: BART/TF-IDF report $0 API cost, but real compute cost (CPU time,
+electricity) isn't zero at scale — it just isn't billed per-call the way
+API usage is. Total cost of ownership still matters at high volume.
+
+### When classical models are NOT the right choice
+Classical (TF-IDF + LogReg) needs labeled training examples per category and
+must be retrained whenever a new category appears. LLM zero-shot and local
+zero-shot (BART) need no training data — they can classify into brand-new
+categories immediately just by changing the category list in the prompt.
+Tradeoff: flexibility (LLM/zero-shot) vs. cost+speed+consistency (classical).
+Rule of thumb: start with zero-shot when you don't have labeled data yet;
+move to a trained classical model once you have enough real examples and
+volume justifies the training effort.
+
+### What TF-IDF actually is
+Term Frequency x Inverse Document Frequency — a way to vectorize text using
+pure word counting, no learned meaning involved.
+- Term Frequency: how often a word appears in THIS document.
+- Inverse Document Frequency: how RARE that word is across all documents —
+  common words (the, is, I) get down-weighted, rare/distinctive words
+  (invoice, crashes, password) get up-weighted.
+This is why TF-IDF worked well here: the 4 categories had distinctive
+vocabulary. It has zero semantic understanding — same weakness as BM25/
+keyword search from Day 4 (banana joke problem). Would fail if categories
+shared vocabulary or users paraphrased heavily; that's exactly the gap
+embeddings and LLMs fill.
+
+### Real incident: hit Gemini's DAILY quota mid-experiment
+- Symptom: 429 RESOURCE_EXHAUSTED after ~20 requests to gemini-3.5-flash —
+  a per-day, per-model quota (limit: 20), not per-minute. The API's own
+  suggested retry-delay (31s) was misleading since the real limit was daily.
+- Built fallback logic live, under pressure: try Gemini first, on failure
+  fall back to Groq (llama-3.3-70b-versatile). All 10 items succeeded via
+  fallback once Gemini's quota was exhausted, including the one item Gemini
+  had previously gotten wrong.
+- Groq was ~7.5x faster than Gemini on this run (2,149 ms/item vs.
+  16,272 ms/item) — due to Groq's custom LPU hardware AND because Llama
+  3.3 is a non-reasoning model with no hidden "thinking" step, unlike
+  Gemini 3.x.
+- Self-identified gap (before being told): the fallback used a bare
+  `except Exception`, which would silently redirect ANY failure — including
+  real bugs, auth errors, bad requests — to Groq instead of surfacing them.
+  Correct pattern for Week 2's client.py: catch specific exceptions
+  (RateLimitError, APIStatusError) only; let genuine bugs crash loudly.
+- Lesson: rate limits stack across multiple dimensions (per-minute AND
+  per-day). A retry loop doesn't help against a daily cap — only a fallback
+  provider does.
+
+### What "thinking tokens" are (deeper explanation)
+Newer models (Gemini 3.x, Claude extended thinking, OpenAI o-series) can
+generate hidden internal reasoning tokens before producing the visible
+answer. These are billed as part of completion tokens and take real compute
+time, even though you never see them in `.message.content`. This is why a
+one-word Gemini answer can still take 16 seconds and cost more tokens than
+expected. Providers usually let you control this (a "thinking budget"). For
+simple tasks like 4-way classification, this reasoning step is often wasted
+latency/cost — a case for matching model capability/mode to task difficulty
+(model routing, per the production roadmap).
+
+### Open question — flagged for follow-up, NOT resolved today
+Initially thought Groq was more expensive per call than Gemini. This
+conclusion was based on comparing two DIFFERENT runs (one where Gemini
+succeeded normally, token counts unrecorded; one where Gemini failed
+entirely and Groq handled all 10 items, in=77/out=2 tokens per call,
+verified). Never got a same-run, same-items, both-providers-logged
+comparison — so the actual answer is unknown. Also: different providers use
+different tokenizers (Day 2 lesson), so equal prompt text does NOT guarantee
+equal token counts across models — my hand-calculation assumed this and it
+was an unverified guess.
+FOLLOW-UP: revisit after Day 7. Add matching debug logging to BOTH the
+Gemini and Groq branches, rerun once Gemini's daily quota resets, and get
+a genuine apples-to-apples cost comparison.
+Lesson: caught myself before writing a false conclusion into the log.
+Measure before concluding, especially across systems that don't share
+infrastructure (different tokenizers, different hardware, different pricing
+models).
