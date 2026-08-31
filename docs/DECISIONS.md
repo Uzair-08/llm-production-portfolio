@@ -427,3 +427,45 @@ models).
   mid-execution instead of immediately at startup.
 - Fixed by consolidating all imports into one block at the top, grouped
   stdlib -> third-party -> local.
+
+  ## 2026-08-XX — Day 6: implemented LLMClient (retries, fallback, cost/latency)
+
+### What was built
+- _call_once(): makes exactly ONE call to ONE model. No retry logic inside it
+  by design — it's a "dumb" building block. Separation of concerns: _call_once
+  decides nothing about failure handling; complete() decides everything.
+  This lets complete() reuse _call_once for both the primary AND fallback
+  attempt without duplicating or accidentally double-retrying logic.
+- complete(): wraps _call_once in try/except, catching (RateLimitError,
+  APIStatusError) SPECIFICALLY — not bare Exception. Rate limits/server
+  errors are worth retrying with a fallback model; a genuine code bug
+  (bad request, auth failure, etc.) should crash loudly and get fixed,
+  not get silently retried forever.
+- Verified end-to-end: hello_gemini.py, now just 4 lines using LLMClient,
+  got cost ($0.000288), latency (4466ms), and correct output — all for free,
+  because retries/fallback/logging live in the toolkit, not the script.
+
+### Bugs found and fixed along the way
+- Empty-dict bug in _call_once: `{"role":"system",...} if system else {}`
+  appended an EMPTY dict when system=None, which the API would reject
+  (missing required keys). Fixed with a plain if-statement that only
+  appends when system is actually provided.
+- Missing `fallback_model` field in Settings — client.py referenced it
+  before config.py was updated to include it. AttributeError at runtime,
+  caught immediately by testing.
+- Stale PRICES_PER_MTOK entries (Claude Haiku/Sonnet) with no matching
+  PROVIDER_BASE_URLS entries — caught by test_every_priced_model_has_a_base_url.
+  Removed the unused entries (never had real API access to them anyway).
+- Stale test assertion in test_gemini_flash_cost — comment and assertion
+  still described OLD pricing (0.30/2.50) after the model's real price had
+  changed to 1.50/9.00. Third time this exact pattern has hit me (Day 1,
+  Day 5, now Day 6). Flagging DEFAULT_MODEL_ID as a real constant to add,
+  so model names/prices are referenced from one place instead of hardcoded
+  string literals scattered across test files.
+
+### What test_every_priced_model_has_a_base_url actually protects against
+Catches config drift between PRICES_PER_MTOK and PROVIDER_BASE_URLS — a model
+priced but not actually callable. Caught exactly this today with the unused
+Claude entries. Real lesson: two related config dicts that must stay in sync
+need a test enforcing that sync, or drift is invisible until someone hits it
+at runtime.

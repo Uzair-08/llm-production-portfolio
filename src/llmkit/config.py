@@ -21,7 +21,8 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
 
     # Defaults you will tune per project
-    default_model: str = "gemini-3.5-flash"  # cheap tier for iteration
+    default_model: str = "gemini-3.5-flash" 
+    fallback_model: str = "llama-3.3-70b-versatile" # cheap tier for iteration
     request_timeout_s: float = 60.0
     max_retries: int = 3
 
